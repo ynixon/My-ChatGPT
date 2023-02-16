@@ -1,76 +1,96 @@
-
 <html>
 
 <head>
-  <title>OpenAI Completion Flask App</title>
-  <link rel="stylesheet" type="text/css" href="/static/css/style.css">
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <title>OpenAI Completion Flask App</title>
+    <link rel="stylesheet" type="text/css" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
 </head>
 
 <body>
-  <h1>Welcome to the OpenAI Flask App!</h1>
-  <div id="conversation-history"></div>
-  <div id="prompt-container">
-    <textarea id="prompt"></textarea>
-    <button class="send" onclick="submitPrompt()">
+    <div class="hourglass-overlay">
+        <div class="hourglass"></div>
+    </div>
+
+    <h1>Welcome to the OpenAI Flask App!</h1>
+    <div id="conversation-history"></div>
+    <div id="prompt-container">
+        <textarea id="prompt"></textarea>
+        <button class="send" onclick="submitPrompt()">
       <i class="material-icons">send</i>
     </button>
-  </div>
+    </div>
 
-  <script>
-    async function getResponse(prompt) {
-      const response = await openai.Completion.create({
-        model: "text-davinci-002",
-        prompt: prompt
-      });
-      const text = response.choices[0].text;
-      const conversation_history = sessionStorage.getItem("conversation_history") || [];
-      const new_conversation_history = [...conversation_history, {prompt, text}];
-      sessionStorage.setItem("conversation_history", JSON.stringify(new_conversation_history));
-      return text;
-    }
-    
-    async function submitPrompt() {
-      // Get the prompt text from the textarea
-      const prompt = document.getElementById("prompt").value;
-      console.log(prompt);
-    
-      // Submit the prompt to the completion endpoint
-      var xhr = new XMLHttpRequest();
-      xhr.open("POST", "/completion", true);
-      xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-      xhr.onreadystatechange = function () {
-        if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
-          // Get the HTML string from the response
-          const c_response = JSON.parse(xhr.responseText);
-          response = c_response.conversation_history[0][1];
-          console.log(response);
-    
-          // Create a new div to display the conversation history
-          var conversationHistory = document.createElement("div");
-          conversationHistory.innerHTML = "<b>Me:</b> " + prompt + "<br><br><b>Bot:</b> " + response;
-
-          conversationHistory.classList.add("conversation-history");
-    
-          // Add the conversation history to the page
-          document.getElementById("conversation-history").appendChild(conversationHistory);
-    
-          // Clear the prompt textarea
-          document.getElementById("prompt").value = "";
+    <script>
+        async function getResponse(prompt) {
+            const response = await openai.Completion.create({
+                model: "text-davinci-002",
+                prompt: prompt
+            });
+            const text = response.choices[0].text;
+            const conversation_history = sessionStorage.getItem("conversation_history") || [];
+            const new_conversation_history = [...conversation_history, {
+                prompt,
+                text
+            }];
+            sessionStorage.setItem("conversation_history", JSON.stringify(new_conversation_history));
+            return text;
         }
-      };
-      xhr.send("prompt=" + encodeURIComponent(prompt));
-    }
-    
 
-    // listen for the enter key
-    document.getElementById("prompt").addEventListener("keydown", function (event) {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        submitPrompt();
-      }
-    });
-  </script>
+        const overlay = document.querySelector('.hourglass-overlay');
+        const hourglass = document.querySelector('.hourglass');
+
+        async function submitPrompt() {
+            // Get the prompt text from the textarea
+            const prompt = document.getElementById("prompt").value;
+            console.log(prompt);
+
+            // Show the hourglass overlay
+            overlay.style.display = 'block';
+            // Show the hourglass
+            hourglass.style.display = 'block';
+
+            // Submit the prompt to the completion endpoint
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", "/completion", true);
+            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+            xhr.onreadystatechange = function() {
+                if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+                    // Hide the hourglass
+                    hourglass.style.display = 'none';
+                    // Hide the hourglass overlay
+                    overlay.style.display = 'none';
+
+                    // Get the HTML string from the response
+                    const c_response = JSON.parse(xhr.responseText);
+                    response = c_response.conversation_history[0][1];
+                    console.log(response);
+
+                    // Create a new div to display the conversation history
+                    var conversationHistory = document.createElement("div");
+                    conversationHistory.innerHTML = "<b>Me:</b> " + prompt + "<br><br><b>Bot:</b> " + response;
+
+                    conversationHistory.classList.add("conversation-history");
+
+                    // Add the conversation history to the page
+                    document.getElementById("conversation-history").appendChild(conversationHistory);
+
+                    // Clear the prompt textarea
+                    document.getElementById("prompt").value = "";
+                }
+            };
+            xhr.send("prompt=" + encodeURIComponent(prompt));
+        }
+
+
+
+        // listen for the enter key
+        document.getElementById("prompt").addEventListener("keydown", function(event) {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                submitPrompt();
+            }
+        });
+    </script>
 </body>
 
 </html>
