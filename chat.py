@@ -33,12 +33,16 @@ else:
 
         app = Flask(__name__)
         app.secret_key = os.urandom(24)
+        app.config["OPENAI_MODEL"] = model
 
         def process_message(prompt, response, session):
             conversation_history = session.get('conversation_history', [])
             conversation_history = [(prompt, response)] + conversation_history
+            # formatted_history = "\n".join(f"{p}\n{r}" for p, r in conversation_history)
             session['conversation_history'] = conversation_history
+            # return formatted_history
             return conversation_history
+
 
         @app.route('/')
         def index():
@@ -60,6 +64,7 @@ else:
                 temperature=0.5,
             )
             response = completion['choices'][0]['text'].strip()
+            response = response.replace('\n\n', '<br>')
             print("Session data before processing message:", session)
             session['conversation_history'] = process_message(
                 prompt, response, session)
