@@ -55,7 +55,7 @@
 
 
         var model = "{{ config['OPENAI_MODEL'] }}";
-        console.log(model);
+        console.log("Mode: " + model);
         async function getResponse(prompt) {
             const response = await openai.Completion.create({
                 model: model,
@@ -83,7 +83,7 @@
 
             // Get the prompt text from the textarea
             const prompt = document.getElementById("prompt").value;
-            console.log(prompt);
+            console.log("prompt: " + prompt);
 
             // Create a new div to display the prompt with "Me:" prefix
             var promptDiv = document.createElement("div");
@@ -131,9 +131,12 @@
                     //clearTimeout(timeoutId);
 
                     // Get the HTML string from the response
-                    const c_response = JSON.parse(xhr.responseText);
-                    response = c_response.conversation_history[0][1];
-                    console.log(response.replace(/<br>/g, '\n'));
+                    console.log("xhr.responseText: " + xhr.responseText);
+                    const trimmedResponseText = xhr.responseText.trim();
+                    const c_response = JSON.parse(trimmedResponseText);
+                    response = c_response.response;
+                    console.log("response: " + response.replace(/<br>/g, '\n'));
+
 
                     // Create a new div to display the bot's response with "Bot:" prefix
                     var responseDiv = document.createElement("div");
