@@ -139,3 +139,68 @@ button.send {
     vertical-align: top;
     padding-left: 10px;
 }
+
+pre {
+    background-color: #000000;
+    color: #ffffff;
+}
+
+.copy-button {
+    background-color: #4CAF50;
+    color: white;
+    padding: 12px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: 10px;
+}
+
+.response-container {
+    position: relative;
+}
+
+.copy-button {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    display: none;
+}
+
+.has-copy-button {
+    padding-bottom: 40px;
+    /* add space for the copy button */
+}
+
+.has-copy-button pre {
+    margin-bottom: 40px;
+    /* push the pre element down to make space for the copy button */
+}
+
+function showCopyButton(responseContainer) {
+    const pre=responseContainer.querySelector("pre");
+    const copyButton=responseContainer.querySelector(".copy-button");
+    if (pre && copyButton) {
+        copyButton.style.display="block";
+        responseContainer.classList.add("has-copy-button");
+    }
+}
+
+function hideCopyButton(responseContainer) {
+    const copyButton=responseContainer.querySelector(".copy-button");
+    if (copyButton) {
+        copyButton.style.display="none";
+        responseContainer.classList.remove("has-copy-button");
+    }
+}
+
+function copyCode(button) {
+    var response=button.parentNode.parentNode.querySelector('pre');
+    if (response) {
+        var range=document.createRange();
+        range.selectNode(response);
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        document.execCommand("copy");
+        window.getSelection().removeAllRanges();
+    }
+}

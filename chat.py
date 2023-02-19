@@ -2,9 +2,11 @@ import os
 import openai
 from dotenv import load_dotenv
 import argparse
-from flask import Flask, request, render_template, session, jsonify, Response
+from flask import Flask, redirect, request, render_template, session, jsonify, Response, url_for
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+import subprocess
+
 
 load_dotenv()
 
@@ -72,6 +74,7 @@ if args.mode == "web":
 
     def process_message(text, session, sender):
         # create a new message object and save it to the database
+        text = text.replace("\"", "")
         message = Message(text=text, sender=sender, session=session)
         try:
             db.session.add(message)
@@ -85,6 +88,10 @@ if args.mode == "web":
 
         # fetch the latest 3 messages from the database and append them to the prompt
         conversation_history = Message.query.filter_by(session=session).order_by(Message.timestamp.desc()).limit(3).all()
+        for i in range(len(conversation_history)):
+            #conversation_history[i].text = conversation_history[i].text.replace("\"", "\\\"")
+            conversation_history[i].text = conversation_history[i].text.replace("\"", "")
+
         #conversation_history.reverse()  # reverse the order to get the most recent messages last
         prompt_lines = []
         response_lines = []
@@ -109,9 +116,18 @@ if args.mode == "web":
         # Create the database tables
         db.create_all()
 
+    # @app.errorhandler(Exception)
+    # def handle_error(error):
+    #     # Log the error to the console or to a file
+    #     print(f"An error occurred: {str(error)}")
+    
+    #     # Render a custom error page
+    #     return render_template("index.html", error=str(error))
+
     @app.route('/')
     def index():
-        return render_template('index.html')
+        error = request.args.get("error")
+        return render_template("index.html", error=error)
 
     @app.route('/static/<path:path>')
     def static_file(path):
@@ -119,56 +135,69 @@ if args.mode == "web":
 
     @app.route('/completion', methods=['POST'])
     def handle_completion(session=None):
-        prompt = request.form['prompt']
-        sender = 'user'
-        if session is None:
-            session = app.secret_key
+        try:
+            prompt = request.form['prompt']
+            sender = 'user'
+            if session is None:
+                session = app.secret_key
 
-        # Get the conversation history from the database
-        conversation_history = Message.query.filter_by(session=session).order_by(Message.timestamp.desc()).all()
+            # Get the conversation history from the database
+            conversation_history = Message.query.filter_by(session=session).order_by(Message.timestamp.desc()).all()
 
-        # Get the most recent user message from the conversation history
-        last_user_message = None
-        for message in reversed(conversation_history):
-            if message.sender == 'user':
-                last_user_message = message.text
-                break
+            # Get the most recent user message from the conversation history
+            last_user_message = None
+            for message in reversed(conversation_history):
+                if message.sender == 'user':
+                    last_user_message = message.text
+                    break
 
-        # Construct the prompt based on the conversation history and the current user input
-        prompt_lines = []
-        response_lines = []
-        for message in conversation_history:
-            if message.sender == 'user':
-                prompt_lines.append(message.text)
-            else:
-                response_lines.append(message.text)
-        if last_user_message is not None and last_user_message not in prompt_lines:
-            prompt_lines.append(" !$ ".join(last_user_message + ['']))
-        prompt_with_history = " !$ ".join(response_lines + prompt_lines + [prompt] + [''])
+            # Construct the prompt based on the conversation history and the current user input
+            prompt_lines = []
+            response_lines = []
+            for message in conversation_history:
+                if message.sender == 'user':
+                    prompt_lines.append(message.text)
+                else:
+                    response_lines.append(message.text)
+            if last_user_message is not None and last_user_message not in prompt_lines:
+                prompt_lines.append(" !$ ".join(last_user_message + ['']))
+            prompt_with_history = " !$ ".join(response_lines + prompt_lines + [prompt] + [''])
 
-        process_message(prompt, session, 'user')
-        print('prompt_with_history: ' + prompt_with_history)
+            process_message(prompt, session, 'user')
+            print('prompt_with_history: ' + prompt_with_history)
 
-        # Generate response using OpenAI API
-        completion = openai.Completion.create(
-            engine=model,
-            prompt=prompt_with_history,
-            max_tokens=1024,
-            n=1,
-            stop='!$',
-            temperature=0.5
-        )
+            # Generate response using OpenAI API
+            completion = openai.Completion.create(
+                engine=model,
+                prompt=prompt_with_history,
+                max_tokens=1024,
+                n=1,
+                stop='!$',
+                temperature=0.5
+            )
 
-        # Get the chatbot response from the OpenAI API
-        response = completion.choices[0].text.strip()
+            # Get the chatbot response from the OpenAI API
+            # print(completion)
+            response = completion.choices[0].text.strip()
 
-        # Call process_message to save the chatbot response to the conversation history
-        process_message(response, session, 'chatbot')
+            # Call process_message to save the chatbot response to the conversation history
+            process_message(response, session, 'chatbot')
 
-        return jsonify({'response': response})
+            response = response.replace("<code>", "<pre><code>")
+            response = response.replace("</code>", "</code></pre>")
 
+            response = "'''" + response + "'''"
+            # print(response)
 
-
+            return jsonify({'response': response})
+        
+        except Exception as e:
+            # Log the error to the console or to a file
+            print(f"An error occurred: {str(e)}")
+            
+            # Redirect to the index page with an error message in the query string
+            # return redirect(url_for("index", error=str(e)))
+            return jsonify({'success': False, 'error': str(e)})
 
     if __name__ == '__main__':
         app.run(debug=True)
