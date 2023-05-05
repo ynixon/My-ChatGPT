@@ -7,13 +7,13 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import subprocess
 
-
 load_dotenv()
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 model = os.getenv("OPENAI_MODEL")
 openai.api_base = os.getenv("OPENAI_API_BASE", None)
 openai.api_version = os.getenv("OPENAI_API_VERSION", None)
+openai.api_version = "2023-03-15-preview"
 openai.api_type = os.getenv("OPENAI_API_TYPE", None)
 
 if not openai.api_key:
@@ -65,9 +65,9 @@ if args.mode == "web":
                 sender=message_dict['sender'],
                 session=message_dict['session']
             )
-            message.timestamp = datetime.fromisoformat(message_dict['timestamp'])
+            message.timestamp = datetime.fromisoformat(
+                message_dict['timestamp'])
             return message
-
 
     def message_to_dict(message):
         return {'id': message.id, 'session': message.session, 'text': message.text}
@@ -86,43 +86,9 @@ if args.mode == "web":
                 db.session.add(message)
                 db.session.commit()
 
-        # fetch the latest 3 messages from the database and append them to the prompt
-        conversation_history = Message.query.filter_by(session=session).order_by(Message.timestamp.desc()).limit(3).all()
-        for i in range(len(conversation_history)):
-            #conversation_history[i].text = conversation_history[i].text.replace("\"", "\\\"")
-            conversation_history[i].text = conversation_history[i].text.replace("\"", "")
-
-        #conversation_history.reverse()  # reverse the order to get the most recent messages last
-        prompt_lines = []
-        response_lines = []
-        for message in conversation_history:
-            response_lines.append(message.text)
-        if message.text not in response_lines and sender == 'user':
-            prompt_with_history = " !$ ".join(prompt_lines + response_lines + [''])
-        else:
-            prompt_with_history = " !$ ".join(response_lines + [''])
-
-        # Append the prompt or response based on the sender
-        # if sender == 'user':
-        #     prompt_with_history += f"\n{text}"
-        # elif sender == 'chatbot':
-        #     prompt_with_history += f"\n# {text}"
-
-        return prompt_with_history
-
-
-    
     with app.app_context():
         # Create the database tables
         db.create_all()
-
-    # @app.errorhandler(Exception)
-    # def handle_error(error):
-    #     # Log the error to the console or to a file
-    #     print(f"An error occurred: {str(error)}")
-    
-    #     # Render a custom error page
-    #     return render_template("index.html", error=str(error))
 
     @app.route('/')
     def index():
@@ -133,6 +99,7 @@ if args.mode == "web":
     def static_file(path):
         return app.send_static_file(path)
 
+
     @app.route('/completion', methods=['POST'])
     def handle_completion(session=None):
         try:
@@ -141,78 +108,95 @@ if args.mode == "web":
             if session is None:
                 session = app.secret_key
 
-            # Get the conversation history from the database
-            conversation_history = Message.query.filter_by(session=session).order_by(Message.timestamp.desc()).all()
-
-            # Get the most recent user message from the conversation history
-            last_user_message = None
-            for message in reversed(conversation_history):
-                if message.sender == 'user':
-                    last_user_message = message.text
-                    break
-
-            # Construct the prompt based on the conversation history and the current user input
-            prompt_lines = []
-            response_lines = []
-            for message in conversation_history:
-                if message.sender == 'user':
-                    prompt_lines.append(message.text)
-                else:
-                    response_lines.append(message.text)
-            if last_user_message is not None and last_user_message not in prompt_lines:
-                prompt_lines.append(" !$ ".join(last_user_message + ['']))
-            prompt_with_history = " !$ ".join(response_lines + prompt_lines + [prompt] + [''])
-
+            # Call process_message to save the user input to the conversation history
             process_message(prompt, session, 'user')
-            print('prompt_with_history: ' + prompt_with_history)
 
-            # Generate response using OpenAI API
-            completion = openai.Completion.create(
+            # Get the conversation history from the database
+            conversation_history = Message.query.filter_by(
+                session=session).order_by(Message.timestamp.asc()).all()
+
+            # Prepare messages for the Chat API
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are Quest customer support whose primary goal is to help users with issues they are experiencing with their Foglight. You are friendly and concise. You only provide factual answers to queries, and do not provide answers that are not related to Foglight.",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ]
+
+            for message in conversation_history:
+                messages.append({
+                    "role": "user" if message.sender == "user" else "assistant",
+                    "content": message.text
+                })
+
+            # print(messages)
+
+            response = openai.ChatCompletion.create(
                 engine=model,
-                prompt=prompt_with_history,
-                max_tokens=1024,
-                n=1,
-                stop='!$',
-                temperature=0.5
+                messages=messages,
+                temperature=0.5,
+                max_tokens=350,
+                top_p=1,
+                frequency_penalty=0,
+                presence_penalty=0,
             )
 
-            # Get the chatbot response from the OpenAI API
-            # print(completion)
-            response = completion.choices[0].text.strip()
+            # print (response)
 
-            # Call process_message to save the chatbot response to the conversation history
-            process_message(response, session, 'chatbot')
+            # Get the assistant response from the OpenAI API
+            response_text = response['choices'][0]['message']['content'].strip()
 
-            response = response.replace("<code>", "<pre><code>")
-            response = response.replace("</code>", "</code></pre>")
+            # Call process_message to save the assistant response to the conversation history
+            process_message(response_text, session, 'assistant')
 
-            response = "'''" + response + "'''"
-            # print(response)
+            response_text = response_text.replace("<code>", "<pre><code>")
+            response_text = response_text.replace("</code>", "</code></pre>")
 
-            return jsonify({'response': response})
-        
+            response_text = "'''" + response_text + "'''"
+
+            print(f"User prompt: {prompt}")
+            print(f"assistant response: {response_text}")
+
+            return jsonify({'response': response_text})
+
         except Exception as e:
             # Log the error to the console or to a file
             print(f"An error occurred: {str(e)}")
-            
+
             # Redirect to the index page with an error message in the query string
-            # return redirect(url_for("index", error=str(e)))
             return jsonify({'success': False, 'error': str(e)})
 
     if __name__ == '__main__':
         app.run(debug=True)
 
+
 elif args.mode == "console":
     prompt = input("Enter a prompt: ")
-    response = openai.Completion.create(
+    messages = [
+        {
+            "role": "system",
+            "content": "You are Quest customer support whose primary goal is to help users with issues they are experiencing with their Foglight. You are friendly and concise. You only provide factual answers to queries, and do not provide answers that are not related to Foglight.",
+        },
+        {
+            "role": "user",
+            "content": prompt,
+        },
+    ]
+    response = openai.ChatCompletion.create(
         engine=model,
-        prompt=prompt,
-        max_tokens=1024,
-        n=1,
-        stop=None,
+        messages=messages,
         temperature=0.5,
+        max_tokens=350,
+        top_p=1,
+        frequency_penalty=0,
+        presence_penalty=0,
     )
-    text = response.choices[0].text
+    # print(response)
+    text = response['choices'][0]['message']['content'].strip()
     lines = text.split('\n')
     lines = [line.strip() for line in lines if line.strip()]
     formatted_text = '\n'.join(lines)

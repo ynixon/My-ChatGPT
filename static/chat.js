@@ -24,16 +24,15 @@ textarea.addEventListener('keydown', function(event) {
     }
 });
 
+// var model = "{{ app.config['OPENAI_MODEL'] }}";
 
-
-var model = "{{ config['OPENAI_MODEL'] }}";
-console.log("Mode: " + model);
+// console.log("Mode: " + model);
 async function getResponse(prompt) {
-    const response = await openai.Completion.create({
+    const response = await openai.ChatCompletion.create({
         model: model,
         prompt: prompt
     });
-    const text = response.choices[0].text;
+    const text = response['choices'][0]['message']['content'].strip()
     const conversation_history = sessionStorage.getItem("conversation_history") || [];
     const new_conversation_history = [...conversation_history, {
         prompt,
@@ -55,7 +54,7 @@ async function submitPrompt() {
 
     // Get the prompt text from the textarea
     const prompt = document.getElementById("prompt").value;
-    console.log("prompt: " + prompt);
+    // console.log("prompt: " + prompt);
 
     // Create a new div to display the prompt with "Me:" prefix
     var promptDiv = document.createElement("div");
@@ -101,12 +100,13 @@ async function submitPrompt() {
 
             // Clear the timeout
             //clearTimeout(timeoutId);
+            // console.log(xhr);
 
             if (xhr.responseText) {
-                console.log("xhr.responseText: " + xhr.responseText)
+                // console.log("xhr.responseText: " + xhr.responseText)
                 const responseObj = JSON.parse(xhr.responseText);
                 var response = responseObj.response.trim();
-                console.log("response: " + response);
+                // console.log("response: " + response);
                 // var response = JSON.parse(xhr.responseText);
                 if (response.error && response.success === false) {
                     // display error message
@@ -121,7 +121,7 @@ async function submitPrompt() {
                     // const c_response = JSON.parse(trimmedResponseText);
                     // response = c_response.response.trim();                    
                     response = response.slice(3, -3);
-                    console.log("response: " + response.replace(/<br>/g, '\n'));
+                    // console.log("response: " + response.replace(/<br>/g, '\n'));
 
                     // Create a new div to display the bot's response with "Bot:" prefix
                     var responseDiv = document.createElement("div");
