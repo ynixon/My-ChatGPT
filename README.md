@@ -29,8 +29,10 @@ pip install -r requirements.txt
 OPENAI_API_KEY=your_api_key
 OPENAI_API_TYPE=[azure|openai]
 OPENAI_API_BASE=https://<Azure OpenAI Cognitive Service name>.openai.azure.com/
-OPENAI_API_VERSION=2022-12-01
-OPENAI_MODEL=text-davinci-002
+OPENAI_API_VERSION=2023-03-15-preview
+OPENAI_MODEL=gpt-35-turbo
+SYSTEM_CONTENT="The following is a conversation with an AI assistant. The assistant is helpful, creative, clever, and very friendly."
+
 ```
 
 - `OPENAI_API_KEY`: Your OpenAI API key. You can generate an API key in the - OpenAI web interface. See https://onboard.openai.com for details, or email support@openai.com if you have any questions.
@@ -38,6 +40,7 @@ OPENAI_MODEL=text-davinci-002
 - `OPENAI_API_BASE`: The base URL of the OpenAI API. Required if `OPENAI_API_TYPE` is set to azure.
 - `OPENAI_API_VERSION`: The version of the OpenAI API to use. Required if `OPENAI_API_TYPE` is set to azure.
 - `OPENAI_MODEL`: The name of the OpenAI GPT model to use.
+- `SYSTEM_CONTENT`: The system content message for setting the context of the conversation.
 
 5. Run the Flask app or Console app:
 
@@ -60,4 +63,4 @@ python chat.py --mode console
 
 ## Note
 
-The model used in this app is set to "text-davinci-002", but you can change it to any other OpenAI language model that you have access to.
+The model used in this app is set to "gpt-35-turbo", but you can change it to any other OpenAI language model that you have access to.

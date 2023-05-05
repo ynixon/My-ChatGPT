@@ -24,9 +24,36 @@ textarea.addEventListener('keydown', function(event) {
     }
 });
 
-// var model = "{{ app.config['OPENAI_MODEL'] }}";
+let chat_session_id = null; // Change this line to declare a variable instead of a constant
 
-// console.log("Mode: " + model);
+// Fetch a new session ID from the server
+async function fetchNewSession() {
+    try {
+        const response = await fetch('/new_session', { credentials: 'same-origin' });
+        const data = await response.json();
+        // Store the session ID in the browser's session storage
+        sessionStorage.setItem('session_id', data.session_id);
+        // Update the chat_session_id variable
+        chat_session_id = data.session_id;
+        // console.log("Session ID0:", chat_session_id);
+    } catch (error) {
+        console.error("Failed to fetch new session ID:", error);
+    }
+}
+
+
+// Initialize the chat session
+async function initChatSession() {
+    // Get the chat session ID from the server
+    const response = await fetch('/chat_session');
+    const data = await response.json();
+    chat_session_id = data.session_id; // Assign the session ID to the variable instead of a constant
+    // console.log("Session ID1:", chat_session_id);
+}
+
+// Call initChatSession to initialize the chat session
+initChatSession();
+
 async function getResponse(prompt) {
     const response = await openai.ChatCompletion.create({
         model: model,
@@ -79,10 +106,17 @@ async function submitPrompt() {
         controller.abort();
     }, 10000);
 
+    // console.log("Session ID2:", chat_session_id);
+
     // Submit the prompt to the completion endpoint
     xhr = new XMLHttpRequest();
+    // console.log(xhr);
     xhr.open("POST", "/completion", true);
     xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+    const temperature = 0.7;
+    const max_tokens = 50;
+
+    xhr.send("prompt=" + encodeURIComponent(prompt) + "&session_id=" + encodeURIComponent(chat_session_id) + "&temperature=" + temperature + "&max_tokens=" + max_tokens);
     // Set up the onreadystatechange function to handle the response
     xhr.onreadystatechange = function() {
         // If the request is complete and successful
@@ -97,39 +131,44 @@ async function submitPrompt() {
             document.querySelector('.send').style.display = 'inline-block';
             document.querySelector('.stop').disabled = true;
             document.querySelector('.stop').style.display = 'none';
-
-            // Clear the timeout
-            //clearTimeout(timeoutId);
-            // console.log(xhr);
-
+            // console.log("responseText: " + xhr.responseText);
             if (xhr.responseText) {
-                // console.log("xhr.responseText: " + xhr.responseText)
                 const responseObj = JSON.parse(xhr.responseText);
-                var response = responseObj.response.trim();
-                // console.log("response: " + response);
-                // var response = JSON.parse(xhr.responseText);
-                if (response.error && response.success === false) {
+
+                if (responseObj.error && responseObj.success === false) {
                     // display error message
-                    alert(response.error);
-                } else if (response.message && response.success === true) {
+                    alert(responseObj.error);
+                } else if (responseObj.message && responseObj.success === true) {
                     // display success message
-                    alert(response.message);
+                    alert(responseObj.message);
                 } else {
-                    // Get the HTML string from the response
-                    // console.log("xhr.responseText: " + response.message);
-                    // const trimmedResponseText = response.message;
-                    // const c_response = JSON.parse(trimmedResponseText);
-                    // response = c_response.response.trim();                    
-                    response = response.slice(3, -3);
-                    // console.log("response: " + response.replace(/<br>/g, '\n'));
+                    var response = responseObj.message;
+                    if (response) {
+                        response = response.trim();
+                    }
+                    // console.log("response: " + response);
+                    if (responseObj.error && responseObj.success === false) {
+                        // display error message
+                        alert(responseObj.error);
+                    } else if (responseObj.message && responseObj.success === true) {
+                        // display success message
+                        alert(responseObj.message);
+                    } else {
+                        // Get the HTML string from the response
+                        // console.log("xhr.responseText: " + response);
+                        if (response) {
+                            response = response.slice(3, -3);
+                        }
+                        // console.log("response: " + response.replace(/<br>/g, '\n'));
 
-                    // Create a new div to display the bot's response with "Bot:" prefix
-                    var responseDiv = document.createElement("div");
-                    responseDiv.innerHTML = "<table><tr><td class='conversation-table__column1'><b>Bot:</b></td><td>" + response.replace(/\n/g, "<br>") + "</td></tr></table>";
-                    responseDiv.classList.add("conversation-history");
+                        // Create a new div to display the bot's response with "Bot:" prefix
+                        var responseDiv = document.createElement("div");
+                        responseDiv.innerHTML = "<table><tr><td class='conversation-table__column1'><b>Bot:</b></td><td>" + response.replace(/\n/g, "<br>") + "</td></tr></table>";
+                        responseDiv.classList.add("conversation-history");
 
-                    // Add the response to the page
-                    document.getElementById("conversation-history").appendChild(responseDiv);
+                        // Add the response to the page
+                        document.getElementById("conversation-history").appendChild(responseDiv);
+                    }
                 }
             } else {
                 // no response
@@ -141,14 +180,15 @@ async function submitPrompt() {
     // Set the signal of the request to the abort controller's signal
     // xhr.signal = controller.signal;
 
-    xhr.send("prompt=" + encodeURIComponent(prompt));
 }
 
 // hljs.initHighlightingOnLoad();
 
 function stopCompletion() {
     // Abort the current request
-    xhr.abort();
+    if (xhr.readyState === XMLHttpRequest.OPENED) {
+        xhr.abort();
+    }
 
     // Enable the send button and disable the stop button
     document.querySelector('.send').disabled = false;

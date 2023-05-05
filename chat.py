@@ -1,10 +1,16 @@
+# export FLASK_DEBUG=development
+# unset FLASK_DEBUG
+# python chat.py --mode web
+# python chat.py --mode console 
 import os
 import openai
 from dotenv import load_dotenv
 import argparse
 from flask import Flask, redirect, request, render_template, session, jsonify, Response, url_for
 from flask_sqlalchemy import SQLAlchemy
+from flask import session
 from datetime import datetime
+import uuid
 
 load_dotenv()
 
@@ -13,6 +19,7 @@ model = os.getenv("OPENAI_MODEL")
 openai.api_base = os.getenv("OPENAI_API_BASE", None)
 openai.api_version = os.getenv("OPENAI_API_VERSION", None)
 openai.api_type = os.getenv("OPENAI_API_TYPE", None)
+system_content = os.getenv("SYSTEM_CONTENT", None)
 
 if not openai.api_key:
     raise ValueError("Error: OPENAI_API_KEY must be set.")
@@ -67,19 +74,40 @@ class Message(db.Model):
         return message
 
 
-def process_message(text, session, sender, db=None):
+def process_message(text, session_id, sender, db=None):
+    if app.debug:
+        print(f"Processing message: {text}")
+        print(f"Database object: {db}")
     with app.app_context():
+        # Create the database tables
+        db.create_all()
+        if app.debug:
+            print("Database tables created")
         text = text.replace("\"", "")
-        message = Message(text=text, sender=sender, session=session)
+        message = Message(text=text, sender=sender, session=session_id)
         try:
             db.session.add(message)
             db.session.commit()
+            messages = Message.query.all()
+            if app.debug:
+                print(f"Messages in database: {messages}")
         except Exception as e:
             db.session.rollback()
+            print(f"Error adding message to database: {e}")
             if "no such table" in str(e):
                 db.create_all()
                 db.session.add(message)
                 db.session.commit()
+                messages = Message.query.all()
+                messages = Message.query.all()
+                if app.debug:
+                    print(f"Messages in database: {messages}")
+        
+        # Your custom logic for processing the text before generating a response
+        # ...
+        processed_text = text
+
+    return processed_text
 
 
 def conversation_history(session):
@@ -90,120 +118,160 @@ def conversation_history(session):
 
 session_id = str(datetime.now().timestamp())
 
+
+def clear_conversation(session_id, db=None):
+    with app.app_context():
+        messages = Message.query.filter_by(session=session_id).all()
+        for message in messages:
+            db.session.delete(message)
+        db.session.commit()
+
+def generate_response(user_input, session_id):
+    messages = [
+        {
+            "role": "system",
+            "content": system_content,
+        },
+        {
+            "role": "user",
+            "content": user_input,
+        },
+    ]
+
+    conversation_history_list = conversation_history(session_id)
+    for message in conversation_history_list:
+        messages.append({
+            "role": "user" if message['sender'] == "user" else "assistant",
+            "content": message['text']
+        })
+
+    response = openai.ChatCompletion.create(
+        engine=model,
+        messages=messages,
+        temperature=0.5,
+        max_tokens=350,
+        top_p=1,
+        frequency_penalty=0,
+        presence_penalty=0,
+    )
+    response_text = response.choices[0].message.content.strip()
+
+    if app.debug:
+        print("generate_response Session ID: " + session_id)
+        print(f"Generated response: {response_text}")
+
+    return response_text
+
 if args.mode == "web":
     @app.route('/')
     def index():
-        return render_template('index.html', conversation_history=conversation_history(session_id))
+        session_id = str(uuid.uuid4())
+        session['session_id'] = session_id
+        return render_template('index.html', session_id=session_id)
+
+    @app.route('/chat_session')
+    def get_chat_session():
+        if 'session_id' not in session:
+            new_session_id = str(uuid.uuid4())
+            if app.debug:
+                print("chat Session1 ID: " + new_session_id)
+            session['session_id'] = new_session_id
+        else:
+            new_session_id = session['session_id']
+            if app.debug:
+                print("chat Session2 ID: " + new_session_id)
+        return jsonify({'session_id': new_session_id})
+
+    @app.route('/new_session', methods=['GET'])
+    def new_session():
+        if 'session_id' not in session:
+            session_id = str(uuid.uuid4())
+            print("new Session1 ID: " + session_id)
+            session['session_id'] = session_id
+        else:
+            session_id = session['session_id']
+            if app.debug:
+                print("new Session2 Session ID: " + session_id)
+        return jsonify({'session_id': session_id})
 
     @app.route('/message', methods=['POST'])
     def message():
         user_input = request.form['message']
-        process_message(user_input, session_id, "user", db)
-        response = openai.Completion.create(
-            engine=model,
-            prompt=f"{user_input.strip()}",
-            max_tokens=1024,
-            n=1,
-            stop=None,
-            temperature=0.7,
-        )
-        message = response.choices[0].text.strip()
-        process_message(message, session_id, "chatbot", db)
-        return jsonify({'response': message})
+        # session_id = request.form['session_id']  # Remove this line
 
-    @app.route('/clear')
+        if app.debug:
+            print("mes Session ID: " + session_id)  # Remove this line
+
+        process_message(user_input, session_id, "user", db)
+
+        response_text = generate_response(user_input, session_id)
+
+        process_message(response_text, session_id, "assistant", db)
+
+        return jsonify({'message': response_text})
+
+
+    @app.route('/clear', methods=['POST'])
     def clear():
-        db.session.query(Message).filter_by(session=session_id).delete()
-        db.session.commit()
-        return redirect(url_for('index'))
+        session_id = request.form['session_id']
+        clear_conversation(session_id, db)
+        return jsonify({'status': 'success'})
 
     @app.route('/completion', methods=['POST'])
-    def handle_completion():
+    def completion():
+        if 'prompt' not in request.form:
+            return jsonify({'error': 'Missing prompt in request form'}), 400
+
         prompt = request.form['prompt']
-        process_message(prompt, session_id, 'user', db)
+        if 'session_id' not in session:
+            session['session_id'] = str(uuid.uuid4())
+        session_id = session['session_id']
+        if app.debug:
+            print("comp Session ID: " + session_id)
+        response_text = generate_response(prompt, session_id)
+        
+        # Add this line to assign the sender as 'user'
+        sender = 'user'
 
-        conversation_history_list = conversation_history(session_id)
+        # Pass the session_id variable to the process_message function
+        processed_prompt = process_message(prompt, session_id, sender, db=db)
 
-        messages = [
-            {
-                "role": "system",
-                "content": "You are Quest customer support whose primary goal is to help users with issues they are experiencing with their Foglight. You are friendly and concise. You only provide factual answers to queries, and do not provide answers that are not related to Foglight.",
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ]
+        return jsonify({'message': response_text})
 
-        for message in conversation_history_list:
-            messages.append({
-                "role": "user" if message['sender'] == "user" else "assistant",
-                "content": message['text']
-            })
 
-        response = openai.ChatCompletion.create(
-            engine=model,
-            messages=messages,
-            temperature=0.5,
-            max_tokens=350,
-            top_p=1,
-            frequency_penalty=0,
-            presence_penalty=0,
-        )
-
-        response_text = response.choices[0].message.content.strip()
-        process_message(response_text, session_id, 'assistant', db)
-
-        return jsonify({'response': response_text})
 
     with app.app_context():
+        if app.debug:
+            print("Creating db")
         # Create the database tables
         db.create_all()
 
     if __name__ == '__main__':
         app.run(debug=True)
 
-# Console mode and other code remains the same
-
-
 elif args.mode == "console":
     print("Starting console mode. Type 'exit' to quit.")
 
-    with app.app_context():  # Add this line
-        while True:
-            user_input = input("You: ")
-            if user_input.lower() == 'exit':
-                break
-            process_message(user_input, session_id, "user", db)
+    with app.app_context():  # Add this line to avoid application context errors
+        # Create a new session ID for the console mode
+        session_id = str(uuid.uuid4())
+        try:
+            while True:
+                user_input = input("You: ")
+                if user_input.lower() == 'exit':
+                    break
 
-            messages = [
-                {
-                    "role": "system",
-                    "content": "You are Quest customer support whose primary goal is to help users with issues they are experiencing with their Foglight. You are friendly and concise. You only provide factual answers to queries, and do not provide answers that are not related to Foglight.",
-                },
-                {
-                    "role": "user",
-                    "content": user_input,
-                },
-            ]
-            conversation_history_list = conversation_history(session_id)
-            for message in conversation_history_list:
-                messages.append({
-                    "role": "user" if message['sender'] == "user" else "assistant",
-                    "content": message['text']
-                })
+                # Process and save user message
+                process_message(user_input, session_id, "user", db)
 
-            response = openai.ChatCompletion.create(
-                engine=model,
-                messages=messages,
-                temperature=0.5,
-                max_tokens=350,
-                top_p=1,
-                frequency_penalty=0,
-                presence_penalty=0,
-            )
-            response_text = response.choices[0].message.content.strip()
-            print(f"Assistant: {response_text}")
-            process_message(response_text, session_id, "assistant", db)
+                # Generate assistant's response
+                response_text = generate_response(user_input, session_id)
+                print(f"Assistant: {response_text}")
+
+                # Process and save assistant's response
+                process_message(response_text, session_id, "assistant", db)
+        except KeyboardInterrupt:
+            print("\nExiting console mode.")
+
 else:
     print("Error: Invalid mode specified. Must be 'web' or 'console'.")
